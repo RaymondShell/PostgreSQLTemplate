@@ -52,6 +52,11 @@ activating remote access. AMP configuration changes therefore take effect on
 the next ordinary restart; an AMP update is still required once to install this
 template version.
 
+AMP marks the instance ready immediately after that verified PreStart gate and
+the local `psql` console process launches. Readiness does not depend on the
+interactive `Type "help" for help.` banner, which is not reliable through every
+AMP/container console bridge.
+
 Configure each purpose explicitly:
 
 | Purpose | Database setting | Role setting | Source setting |

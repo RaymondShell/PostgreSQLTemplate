@@ -121,15 +121,15 @@ def validate_kvp() -> None:
     }
     if not required.issubset(values):
         raise AssertionError("required KVP entries are missing")
-    if values.get("App.ApplicationReadyMode") != "RegexMatch":
+    if values.get("App.ApplicationReadyMode") != "Immediate":
         raise AssertionError("AMP application readiness mode is invalid")
     expected_filter = (
         r"\e\[(\d+;)*(\d+)?[ABCDHJKfmsu]|\e\[?[?\>\=\da-z]+"
     )
     if values.get("Console.FilterMatchRegex") != expected_filter:
         raise AssertionError("AMP console filter regex is invalid")
-    if values.get("Console.AppReadyRegex") != r'^Type "help" for help\.$':
-        raise AssertionError("AMP psql readiness regex is invalid")
+    if values.get("Console.AppReadyRegex") != r"^$":
+        raise AssertionError("AMP immediate-readiness placeholder regex is invalid")
 
 
 def validate_adversarial_inputs(bash: str, scripts: dict[str, str]) -> None:
