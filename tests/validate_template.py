@@ -21,8 +21,13 @@ SCRIPT_NAMES = {
     "Install deterministic PostgreSQL HBA renderer": "render-hba.sh",
     "Stage PostgreSQL lifecycle supervisor": "supervise.sh",
     "Initialize PostgreSQL and enforce TLS-only remote HBA": "initialize.sh",
-    "Run PostgreSQL with fail-closed TLS selection": "start.sh",
-    "Verify exact PostgreSQL instance and TLS state": "verify.sh",
+    "Refresh PostgreSQL launch script before start": "start.sh",
+    "Refresh PostgreSQL verification script before start": "verify.sh",
+}
+DIRECT_BASH_STAGES = {
+    "Regenerate deterministic PostgreSQL HBA before start": "{{$FullBaseDir}}render-hba.sh",
+    "Run PostgreSQL with fail-closed TLS selection": "{{$FullBaseDir}}start-postgres.sh",
+    "Verify exact PostgreSQL instance and TLS state": "{{$FullBaseDir}}verify-postgres.sh",
 }
 USER_TOKENS = {
     "{{ServerVersion}}",
@@ -67,9 +72,9 @@ def extract_scripts() -> dict[str, str]:
                 continue
             if stage.get("UpdateSourceData") != "/bin/bash":
                 continue
-            if name == "Regenerate deterministic PostgreSQL HBA before start":
-                if stage.get("UpdateSourceArgs") != "{{$FullBaseDir}}render-hba.sh":
-                    raise AssertionError("HBA regeneration is not a direct fixed-path invocation")
+            if name in DIRECT_BASH_STAGES:
+                if stage.get("UpdateSourceArgs") != DIRECT_BASH_STAGES[name]:
+                    raise AssertionError(f"{name} is not a direct fixed-path invocation")
                 continue
             wrapper = stage["UpdateSourceArgs"]
             if "\\\\" in wrapper:
@@ -234,6 +239,40 @@ def validate_kvp() -> None:
         "Refresh deterministic PostgreSQL HBA renderer before start"
     ) >= start_names.index("Regenerate deterministic PostgreSQL HBA before start"):
         raise AssertionError("HBA renderer is executed before its reviewed refresh")
+    for refresh_name, run_name, script_name, run_in_background in (
+        (
+            "Refresh PostgreSQL launch script before start",
+            "Run PostgreSQL with fail-closed TLS selection",
+            "start-postgres.sh",
+            True,
+        ),
+        (
+            "Refresh PostgreSQL verification script before start",
+            "Verify exact PostgreSQL instance and TLS state",
+            "verify-postgres.sh",
+            False,
+        ),
+    ):
+        refresh = start_stages.get(refresh_name, {})
+        run = start_stages.get(run_name, {})
+        expected_path = "{{$FullBaseDir}}" + script_name
+        if (
+            refresh.get("UpdateSource") != "CreateFile"
+            or refresh.get("UpdateSourceArgs") != expected_path
+            or refresh.get("OverwriteExistingFiles") is not True
+            or refresh.get("SkipOnFailure") is not False
+            or refresh.get("RunInBackground", False) is not False
+            or "BASH_SOURCE[0]" not in refresh.get("UpdateSourceData", "")
+            or 'Settings="${ScriptDirectory}/settings"'
+            not in refresh.get("UpdateSourceData", "")
+            or run.get("UpdateSourceData") != "/bin/bash"
+            or run.get("UpdateSourceArgs") != expected_path
+            or run.get("SkipOnFailure") is not False
+            or run.get("RunInBackground", False) is not run_in_background
+            or "-c" in run.get("UpdateSourceArgs", "")
+            or start_names.index(run_name) != start_names.index(refresh_name) + 1
+        ):
+            raise AssertionError(f"{run_name} still depends on AMP shell-string parsing")
     renderer_body = renderer_install.get("UpdateSourceData", "")
     if (
         "BASH_SOURCE[0]" not in renderer_body
