@@ -48,6 +48,10 @@ def extract_scripts() -> dict[str, str]:
                 continue
             name = stage["UpdateStageName"]
             wrapper = stage["UpdateSourceArgs"]
+            if "\\\\" in wrapper:
+                raise AssertionError(
+                    f"AMP bash wrapper contains a doubled backslash: {name}"
+                )
             argv = shlex.split(wrapper, posix=True)
             if len(argv) != 2 or argv[0] != "-c":
                 raise AssertionError(f"unexpected bash wrapper: {name}")
