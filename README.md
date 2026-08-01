@@ -14,7 +14,7 @@ build and defaults to no remotely usable database/role.
   `pg_config` and `postgres` binaries before switching the `pgsql` symlink.
 - Existing data directories cannot be opened by another PostgreSQL major.
 - Versioned installations are retained for binary rollback.
-- Local AMP console access uses operating-system peer authentication; no AMP
+- Local database access uses operating-system peer authentication; no AMP
   database password is embedded in the template or process environment.
 - Remote plaintext is rejected for IPv4 and IPv6 before narrow `hostssl` rules.
 - Primary application, remote administration, commercial runtime, ticket
@@ -52,10 +52,17 @@ activating remote access. AMP configuration changes therefore take effect on
 the next ordinary restart; an AMP update is still required once to install this
 template version.
 
-AMP marks the instance ready immediately after that verified PreStart gate and
-the local `psql` console process launches. Readiness does not depend on the
-interactive `Type "help" for help.` banner, which is not reliable through every
-AMP/container console bridge.
+After that verified PreStart gate, AMP launches a foreground supervisor. It
+pins the exact postmaster PID, Linux process start identity, executable, data
+directory, start epoch and port before emitting a fixed ready marker. AMP now
+remains started for exactly as long as that postmaster identity remains valid.
+On Stop, AMP sends `SIGTERM`; the supervisor revalidates the identity and asks
+`pg_ctl` for a bounded fast shutdown. It never sends a signal to an unverified
+raw postmaster PID.
+
+The AMP console is therefore a read-only lifecycle log, not an interactive SQL
+shell. Use pgAdmin for remote administration or open a local shell as the AMP
+service identity and run `postgresql/pgsql/bin/psql` over the Unix socket.
 
 Configure each purpose explicitly:
 
@@ -80,8 +87,9 @@ every real remote role to be `NOSUPERUSER NOREPLICATION NOBYPASSRLS`. Primary,
 runtime and authorizer must also be `LOGIN NOCREATEDB NOCREATEROLE`; runtime and
 authorizer may not own the commercial database or have any role memberships.
 The migrator must be `NOLOGIN NOCREATEDB NOCREATEROLE` at startup. The pgAdmin
-role may retain `CREATEDB`/`CREATEROLE`, but it cannot be a superuser. Use the
-local `amp` console for superuser-only work. Temporarily grant the migrator
+role may retain `CREATEDB`/`CREATEROLE`, but it cannot be a superuser. Use a
+local peer-authenticated `psql` shell for superuser-only work. Temporarily grant
+the migrator
 `LOGIN` only after a successful start, then restore `NOLOGIN` immediately after
 the controlled migration and before the next restart.
 
@@ -108,7 +116,7 @@ Automate atomic certificate renewal/reload and expiry alerting before production
 
 ## Acceptance checks
 
-From the local AMP console:
+From a local peer-authenticated `psql` shell:
 
 ```sql
 SHOW ssl;

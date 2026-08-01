@@ -1,20 +1,5 @@
 [
   {
-    "DisplayName": "Console Database Name",
-    "Category": "PostgreSQL:database",
-    "Subcategory": "Server:dns:1",
-    "Description": "Database opened by the local AMP console. The database must already exist.",
-    "Keywords": "database,name,dbname",
-    "FieldName": "dbname",
-    "InputType": "text",
-    "ParamFieldName": "dbname",
-    "IncludeInCommandLine": true,
-    "Required": true,
-    "DefaultValue": "postgres",
-    "Placeholder": "postgres",
-    "EnumValues": {}
-  },
-  {
     "DisplayName": "Primary Application TLS Database",
     "Category": "PostgreSQL:security",
     "Subcategory": "Remote Access:key:1",
@@ -245,18 +230,6 @@
     "ParamFieldName": "TLSHostname",
     "Required": true,
     "DefaultValue": "REPLACE_BEFORE_TLS_USE",
-    "EnumValues": {}
-  },
-  {
-    "DisplayName": "Additional Local Client Options",
-    "Category": "PostgreSQL:database",
-    "Subcategory": "Server:dns:1",
-    "Description": "Additional psql options for the local peer-authenticated AMP console.",
-    "Keywords": "client,options,arguments",
-    "FieldName": "CustomClientOptions",
-    "InputType": "Textarea",
-    "ParamFieldName": "CustomClientOptions",
-    "DefaultValue": "",
     "EnumValues": {}
   },
   {

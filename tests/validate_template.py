@@ -19,6 +19,7 @@ SCRIPT_FILES = ("postgresqltlsupdates.json", "postgresqltlsstart.json")
 SCRIPT_NAMES = {
     "Build checksum-verified PostgreSQL with OpenSSL": "build.sh",
     "Install deterministic PostgreSQL HBA renderer": "render-hba.sh",
+    "Install PostgreSQL lifecycle supervisor": "supervise.sh",
     "Initialize PostgreSQL and enforce TLS-only remote HBA": "initialize.sh",
     "Regenerate deterministic PostgreSQL HBA before start": "regenerate-hba.sh",
     "Run PostgreSQL with fail-closed TLS selection": "start.sh",
@@ -59,10 +60,10 @@ def extract_scripts() -> dict[str, str]:
     for filename in SCRIPT_FILES:
         for stage in load_json(filename):
             name = stage["UpdateStageName"]
-            if name == "Install deterministic PostgreSQL HBA renderer":
+            if name in SCRIPT_NAMES and stage.get("UpdateSource") == "CreateFile":
                 body = stage["UpdateSourceData"]
                 if any(token in body for token in USER_TOKENS):
-                    raise AssertionError("AMP setting interpolated into HBA renderer")
+                    raise AssertionError(f"AMP setting interpolated into installed script: {name}")
                 scripts[SCRIPT_NAMES[name]] = body
                 continue
             if stage.get("UpdateSourceData") != "/bin/bash":
@@ -121,15 +122,38 @@ def validate_kvp() -> None:
     }
     if not required.issubset(values):
         raise AssertionError("required KVP entries are missing")
-    if values.get("App.ApplicationReadyMode") != "Immediate":
-        raise AssertionError("AMP application readiness mode is invalid")
     expected_filter = (
         r"\e\[(\d+;)*(\d+)?[ABCDHJKfmsu]|\e\[?[?\>\=\da-z]+"
     )
     if values.get("Console.FilterMatchRegex") != expected_filter:
         raise AssertionError("AMP console filter regex is invalid")
-    if values.get("Console.AppReadyRegex") != r"^$":
-        raise AssertionError("AMP immediate-readiness placeholder regex is invalid")
+    lifecycle = {
+        "App.ExecutableLinux": "supervise.sh",
+        "App.LinuxCommandLineArgs": "",
+        "App.CommandLineArgs": "",
+        "App.ExitMethod": "SIGTERM",
+        "App.ExitTimeout": "45",
+        "App.HasWriteableConsole": "False",
+        "App.HasReadableConsole": "True",
+        "App.ApplicationReadyMode": "RegexMatch",
+        "Console.AppReadyRegex": r"^AMP_POSTGRESQL_SUPERVISOR_READY$",
+    }
+    for key, expected in lifecycle.items():
+        if values.get(key) != expected:
+            raise AssertionError(f"invalid AMP supervisor lifecycle setting: {key}")
+    update_stages = {
+        stage["UpdateStageName"]: stage for stage in load_json("postgresqltlsupdates.json")
+    }
+    install = update_stages.get("Install PostgreSQL lifecycle supervisor", {})
+    restrict = update_stages.get("Restrict PostgreSQL lifecycle supervisor permissions", {})
+    if install.get("UpdateSourceArgs") != "{{$FullBaseDir}}supervise.sh":
+        raise AssertionError("AMP supervisor is not installed at its executable path")
+    if (
+        restrict.get("UpdateSourceData") != "/bin/chmod"
+        or restrict.get("UpdateSourceArgs") != "0500 {{$FullBaseDir}}supervise.sh"
+        or restrict.get("SkipOnFailure") is not False
+    ):
+        raise AssertionError("AMP supervisor executable permissions are not fail-closed")
 
 
 def validate_adversarial_inputs(bash: str, scripts: dict[str, str]) -> None:
@@ -395,6 +419,24 @@ def validate_hba_generation(bash: str, scripts: dict[str, str]) -> None:
                 raise AssertionError(f"{label} replaced the pending HBA file")
 
 
+def validate_supervisor_lifecycle(bash: str, scripts: dict[str, str]) -> None:
+    if os.name == "nt":
+        return
+    with tempfile.TemporaryDirectory(prefix="amp-pg-supervisor-") as temp:
+        supervisor = Path(temp) / "supervise.sh"
+        supervisor.write_text(scripts["supervise.sh"], encoding="utf-8", newline="\n")
+        result = subprocess.run(
+            [bash, str(ROOT / "tests" / "supervisor_lifecycle.sh"), str(supervisor)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise AssertionError(f"supervisor lifecycle tests failed: {result.stdout}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--extract-dir", type=Path)
@@ -420,6 +462,7 @@ def main() -> int:
         subprocess.run([bash, "-n"], input=body, text=True, check=True)
     validate_adversarial_inputs(bash, scripts)
     validate_hba_generation(bash, scripts)
+    validate_supervisor_lifecycle(bash, scripts)
 
     if args.extract_dir:
         args.extract_dir.mkdir(parents=True, exist_ok=True)
@@ -428,7 +471,7 @@ def main() -> int:
             target.write_text("#!/usr/bin/env bash\n" + body + "\n", encoding="utf-8", newline="\n")
             target.chmod(0o755)
 
-    print("Template JSON, KVP, shell safety and bounded HBA generation tests passed")
+    print("Template JSON, KVP, shell safety, HBA and lifecycle tests passed")
     return 0
 
 

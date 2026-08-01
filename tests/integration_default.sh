@@ -8,7 +8,7 @@ Settings=${Base}settings
 TestUser=amp
 Port=55432
 
-for tool in bash bison flex gcc make openssl perl runuser sha256sum tar useradd wget; do
+for tool in bash bison flex gcc make openssl perl runuser sha256sum tar timeout useradd wget; do
   command -v "$tool" >/dev/null || { echo "Missing required tool: $tool"; exit 1; }
 done
 test -f /usr/include/openssl/ssl.h
@@ -39,6 +39,8 @@ printf '%s' '127.0.0.1/32' > "$Settings/commercial-migration-ipv4-cidr"
 printf '%s' '::1/128' > "$Settings/commercial-migration-ipv6-cidr"
 printf '%s' 'REPLACE_BEFORE_TLS_USE' > "$Settings/tls-hostname"
 cp "$ExtractedScripts/render-hba.sh" "${Base}render-hba.sh"
+cp "$ExtractedScripts/supervise.sh" "${Base}supervise.sh"
+chmod 0500 "${Base}supervise.sh"
 chown -R "$TestUser:$TestUser" "$InstanceRoot"
 cd "$InstanceRoot"
 
@@ -58,6 +60,9 @@ wait_for_postgres() {
 }
 
 cleanup() {
+  if [[ -n "${SupervisorProcessPid:-}" ]]; then
+    kill -TERM "$SupervisorProcessPid" >/dev/null 2>&1 || true
+  fi
   if [[ -x "${Base}pgsql/bin/pg_ctl" && -f "${Base}data/postmaster.pid" ]]; then
     runuser -u "$TestUser" -- env "PGDATA=${Base}data" "${Base}pgsql/bin/pg_ctl" -m immediate stop || true
   fi
@@ -121,6 +126,33 @@ grep -Fxq 'hostssl postgres,bazaarmanager,huntingmacro_commercial pgadmin4_admin
 grep -Fxq 'hostssl huntingmacro_commercial hm_commercial_runtime 192.0.2.20/32 scram-sha-256' "${Base}data/pg_hba.conf"
 grep -Fxq 'hostssl huntingmacro_commercial hm_commercial_migrator 192.0.2.30/32 scram-sha-256' "${Base}data/pg_hba.conf"
 
+SupervisorLog="${Base}run/supervisor-integration.log"
+SupervisorPidFile="${Base}run/supervisor-integration.pid"
+runuser -u "$TestUser" -- bash -c 'printf "%s\n" "$$" > "$1"; exec "$2"' supervisor "$SupervisorPidFile" "${Base}supervise.sh" >"$SupervisorLog" 2>&1 &
+SupervisorLauncherPid=$!
+for Attempt in {1..100}; do
+  if grep -Fxq 'AMP_POSTGRESQL_SUPERVISOR_READY' "$SupervisorLog" 2>/dev/null && [[ -s "$SupervisorPidFile" ]]; then
+    break
+  fi
+  kill -0 "$SupervisorLauncherPid" 2>/dev/null || {
+    echo "Lifecycle supervisor exited before readiness: $(<"$SupervisorLog")"
+    exit 1
+  }
+  sleep 0.05
+done
+grep -Fxq 'AMP_POSTGRESQL_SUPERVISOR_READY' "$SupervisorLog"
+SupervisorProcessPid=$(<"$SupervisorPidFile")
+[[ "$SupervisorProcessPid" =~ ^[0-9]+$ ]]
+kill -TERM "$SupervisorProcessPid"
+wait "$SupervisorLauncherPid"
+SupervisorProcessPid=
+! runuser -u "$TestUser" -- "${Base}pgsql/bin/pg_isready" --host="${Base}run" --port="$Port" >/dev/null 2>&1
+[[ ! -f "${Base}data/postmaster.pid" ]]
+grep -Fxq 'Verified PostgreSQL postmaster stopped cleanly' "$SupervisorLog"
+run_stage regenerate-hba.sh
+run_stage start.sh
+run_stage verify.sh
+
 runuser -u "$TestUser" -- "${Psql[@]}" --command="CREATE ROLE elevated_group NOLOGIN SUPERUSER"
 runuser -u "$TestUser" -- "${Psql[@]}" --command="CREATE ROLE elevated_bridge NOLOGIN"
 runuser -u "$TestUser" -- "${Psql[@]}" --command="GRANT elevated_group TO elevated_bridge"
@@ -135,4 +167,4 @@ fi
 ! runuser -u "$TestUser" -- "${Base}pgsql/bin/pg_isready" --host="${Base}run" --port="$Port" >/dev/null 2>&1
 [[ $(grep -c '^hostssl ' "${Base}data/pg_hba.conf" || true) == 0 ]]
 trap - EXIT
-echo 'Pinned AMP image build, role-posture rejection and HBA promotion integration passed'
+echo 'Pinned AMP image build, lifecycle supervision, role-posture rejection and HBA promotion integration passed'
