@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -47,9 +48,10 @@ def extract_scripts() -> dict[str, str]:
                 continue
             name = stage["UpdateStageName"]
             wrapper = stage["UpdateSourceArgs"]
-            if not (wrapper.startswith('-c "') and wrapper.endswith('"')):
+            argv = shlex.split(wrapper, posix=True)
+            if len(argv) != 2 or argv[0] != "-c":
                 raise AssertionError(f"unexpected bash wrapper: {name}")
-            body = wrapper[4:-1].replace(r'\"', '"')
+            body = argv[1]
             if name not in SCRIPT_NAMES:
                 raise AssertionError(f"unrecognised executable stage: {name}")
             if any(token in body for token in USER_TOKENS):
