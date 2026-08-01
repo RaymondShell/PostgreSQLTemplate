@@ -1,0 +1,6 @@
+This project derives its AMP Generic Module structure from the MIT-licensed
+CubeCoders AMPTemplates PostgreSQL configuration:
+https://github.com/CubeCoders/AMPTemplates
+
+TLS, source verification, release switching and deny-by-default HBA changes are
+maintained by RaymondShell/PostgreSQLTemplate.

@@ -1,0 +1,42 @@
+[
+  {
+    "UpdateStageName": "Create PostgreSQL directories",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateDirectory",
+    "UpdateSourceArgs": "{{$FullBaseDir}}data"
+  },
+  {
+    "UpdateStageName": "Create PostgreSQL run directory",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateDirectory",
+    "UpdateSourceArgs": "{{$FullBaseDir}}run"
+  },
+  {
+    "UpdateStageName": "Create PostgreSQL TLS directory",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateDirectory",
+    "UpdateSourceArgs": "{{$FullBaseDir}}tls"
+  },
+  {
+    "UpdateStageName": "Create PostgreSQL release directory",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateDirectory",
+    "UpdateSourceArgs": "{{$FullBaseDir}}releases"
+  },
+  {
+    "UpdateStageName": "Build checksum-verified PostgreSQL with OpenSSL",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "Executable",
+    "UpdateSourceData": "/bin/bash",
+    "UpdateSourceArgs": "-c \"set -euo pipefail; Base=${HM_PG_BASE_DIR:?}; PostgreSQLRelease=${HM_PG_RELEASE:?}; PostgreSQLVersion=${HM_PG_VERSION:?}; ExpectedSha256=${HM_PG_SOURCE_SHA256:?}; [[ \\\"$Base\\\" == /*/ ]] || { echo 'Invalid AMP PostgreSQL base directory'; exit 1; }; [[ \\\"$PostgreSQLVersion\\\" =~ ^(15|16|17|18)\\\\.[0-9]+$ ]] || { echo 'Unsupported or invalid exact PostgreSQL version'; exit 1; }; [[ \\\"$ExpectedSha256\\\" =~ ^[0-9a-fA-F]{64}$ ]] || { echo 'Invalid PostgreSQL SHA-256'; exit 1; }; TargetMajor=\\\"${PostgreSQLVersion%%.*}\\\"; [[ \\\"$TargetMajor\\\" == \\\"$PostgreSQLRelease\\\" ]] || { echo 'Exact version does not match configured major release'; exit 1; }; Data=\\\"${Base}data\\\"; Current=\\\"${Base}pgsql\\\"; if [[ -e \\\"$Data/postmaster.pid\\\" ]]; then echo 'Refusing update while postmaster.pid exists; stop PostgreSQL cleanly and investigate stale PID files'; exit 1; fi; if [[ -x \\\"$Current/bin/pg_isready\\\" ]] && \\\"$Current/bin/pg_isready\\\" --host=\\\"${Base}run\\\" --port=\\\"${PGPORT:?}\\\" >/dev/null 2>&1; then echo 'Refusing update while a PostgreSQL responder is active'; exit 1; fi; if [[ -f \\\"$Data/PG_VERSION\\\" ]]; then DataMajor=$(<\\\"$Data/PG_VERSION\\\"); [[ \\\"$DataMajor\\\" == \\\"$TargetMajor\\\" ]] || { echo 'Refusing cross-major data-directory use; pg_upgrade or dump/restore is required'; exit 1; }; fi; if [[ -x \\\"$Current/bin/postgres\\\" ]]; then CurrentVersion=$(\\\"$Current/bin/postgres\\\" -V | sed -E 's/.* ([0-9]+\\\\.[0-9]+).*$/\\\\1/'); LowestVersion=$(printf '%s\\\\n%s\\\\n' \\\"$CurrentVersion\\\" \\\"$PostgreSQLVersion\\\" | sort -V | head -n1); [[ \\\"$LowestVersion\\\" == \\\"$CurrentVersion\\\" ]] || { echo 'Refusing PostgreSQL binary downgrade'; exit 1; }; fi; Prefix=\\\"${Base}releases/postgresql-${PostgreSQLVersion}-ssl\\\"; if [[ -x \\\"$Prefix/bin/postgres\\\" ]] && \\\"$Prefix/bin/pg_config\\\" --configure | grep -Fq -- '--with-ssl=openssl' && [[ $(\\\"$Prefix/bin/postgres\\\" -V) == *\\\" $PostgreSQLVersion\\\" ]]; then rm -f \\\"${Current}.next\\\"; ln -s \\\"$Prefix\\\" \\\"${Current}.next\\\"; if [[ -e \\\"$Current\\\" && ! -L \\\"$Current\\\" ]]; then mv \\\"$Current\\\" \\\"${Base}releases/legacy-$(date +%s)\\\"; fi; mv -Tf \\\"${Current}.next\\\" \\\"$Current\\\"; printf '%s\\\\n' \\\"$PostgreSQLVersion\\\" > \\\"${Base}selected-release\\\"; echo 'Verified OpenSSL-enabled PostgreSQL release already installed'; exit 0; fi; if [[ -e \\\"$Prefix\\\" ]]; then mv \\\"$Prefix\\\" \\\"${Prefix}.invalid.$(date +%s)\\\"; fi; BuildRoot=\\\"${Base}build/postgresql-${PostgreSQLVersion}-$(date +%s)\\\"; mkdir -p \\\"$BuildRoot\\\"; cd \\\"$BuildRoot\\\"; wget --https-only -O \\\"postgresql-${PostgreSQLVersion}.tar.gz\\\" \\\"https://ftp.postgresql.org/pub/source/v${PostgreSQLVersion}/postgresql-${PostgreSQLVersion}.tar.gz\\\"; printf '%s  %s\\\\n' \\\"$ExpectedSha256\\\" \\\"postgresql-${PostgreSQLVersion}.tar.gz\\\" | sha256sum -c -; mkdir source; tar -xzf \\\"postgresql-${PostgreSQLVersion}.tar.gz\\\" -C source --strip-components=1; cd source; ./configure --prefix=\\\"$Prefix\\\" --with-ssl=openssl; make world-bin -j4; make install-world-bin; \\\"$Prefix/bin/pg_config\\\" --configure | grep -Fq -- '--with-ssl=openssl'; [[ $(\\\"$Prefix/bin/postgres\\\" -V) == *\\\" $PostgreSQLVersion\\\" ]] || { echo 'Installed PostgreSQL version mismatch'; exit 1; }; rm -f \\\"${Current}.next\\\"; ln -s \\\"$Prefix\\\" \\\"${Current}.next\\\"; if [[ -e \\\"$Current\\\" && ! -L \\\"$Current\\\" ]]; then mv \\\"$Current\\\" \\\"${Base}releases/legacy-$(date +%s)\\\"; fi; mv -Tf \\\"${Current}.next\\\" \\\"$Current\\\"; printf '%s\\\\n' \\\"$PostgreSQLVersion\\\" > \\\"${Base}selected-release\\\"; echo 'Installed and selected checksum-verified OpenSSL-enabled PostgreSQL'\"",
+    "SkipOnFailure": false
+  },
+  {
+    "UpdateStageName": "Initialize PostgreSQL and enforce TLS-only remote HBA",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "Executable",
+    "UpdateSourceData": "/bin/bash",
+    "UpdateSourceArgs": "-c \"set -euo pipefail; Base=${HM_PG_BASE_DIR:?}; AllowedDatabase=${HM_PG_ALLOWED_DATABASE:?}; AllowedRole=${HM_PG_ALLOWED_ROLE:?}; AllowedIPv4CIDR=${HM_PG_ALLOWED_IPV4_CIDR:?}; AllowedIPv6CIDR=${HM_PG_ALLOWED_IPV6_CIDR:?}; [[ \\\"$Base\\\" == /*/ ]] || { echo 'Invalid AMP PostgreSQL base directory'; exit 1; }; [[ \\\"$AllowedDatabase\\\" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo 'Invalid allowed database identifier'; exit 1; }; [[ \\\"$AllowedRole\\\" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo 'Invalid allowed role identifier'; exit 1; }; [[ \\\"$AllowedIPv4CIDR\\\" =~ ^[0-9./]+$ ]] || { echo 'Invalid IPv4 CIDR characters'; exit 1; }; [[ \\\"$AllowedIPv6CIDR\\\" =~ ^[0-9a-fA-F:./]+$ ]] || { echo 'Invalid IPv6 CIDR characters'; exit 1; }; cd \\\"$Base\\\"; if [[ ! -f \\\"${Base}data/PG_VERSION\\\" ]]; then pgsql/bin/initdb --pgdata=\\\"${Base}data\\\" --auth-local=peer --auth-host=reject --username=amp; echo 'Initialized PostgreSQL with local peer authentication and remote reject defaults'; fi; Hba=\\\"${Base}data/pg_hba.conf\\\"; umask 077; printf '%s\\\\n' 'local all amp peer' 'local all all scram-sha-256' 'hostnossl all all 0.0.0.0/0 reject' 'hostnossl all all ::0/0 reject' \\\"hostssl $AllowedDatabase $AllowedRole $AllowedIPv4CIDR scram-sha-256\\\" \\\"hostssl $AllowedDatabase $AllowedRole $AllowedIPv6CIDR scram-sha-256\\\" > \\\"$Hba\\\"; echo 'Installed deterministic TLS-only remote HBA rules'\"",
+    "SkipOnFailure": false
+  }
+]

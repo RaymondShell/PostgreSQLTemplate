@@ -1,0 +1,43 @@
+name: Validate AMP template
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  AMP_POSTGRES_IMAGE: cubecoders/ampbase:postgresql@sha256:d2c1603cf6f5d9c5a79fb3aaef9c80f0dc7be1160d529e95ee0c7c7578482ee9
+
+jobs:
+  static-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Validate template and shell-safety regressions
+        run: python3 tests/validate_template.py
+      - name: Verify source release checksum from PostgreSQL
+        run: |
+          expected=$(jq -r '.[] | select(.FieldName == "PostgreSQLSourceSha256") | .DefaultValue' postgresqltlsconfig.json)
+          version=$(jq -r '.[] | select(.FieldName == "CustomServerVersion") | .DefaultValue' postgresqltlsconfig.json)
+          actual=$(curl --fail --silent --show-error --location "https://ftp.postgresql.org/pub/source/v${version}/postgresql-${version}.tar.gz.sha256" | awk '{print $1}')
+          test "$actual" = "$expected"
+      - name: Scan for accidentally committed credentials or private keys
+        run: |
+          ! grep -R -E 'postgres(ql)?://|PGPASSWORD|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY' --exclude-dir=.git --exclude=validate.yml .
+
+  pinned-image-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Extract the exact executable stages
+        run: python3 tests/validate_template.py --extract-dir "$RUNNER_TEMP/extracted"
+      - name: Build and start the default release in the pinned AMP image
+        run: |
+          docker run --rm --entrypoint /bin/bash \
+            -v "$GITHUB_WORKSPACE:/repo:ro" \
+            -v "$RUNNER_TEMP/extracted:/extracted:ro" \
+            "$AMP_POSTGRES_IMAGE" \
+            /repo/tests/integration_default.sh /extracted

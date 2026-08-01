@@ -1,0 +1,9 @@
+*.bak
+*.log
+*.pem
+*.key
+*.crt
+.env
+__pycache__/
+*.pyc
+postgresql/

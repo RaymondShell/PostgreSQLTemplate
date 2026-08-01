@@ -1,0 +1,9 @@
+[
+  {
+    "Protocol": "TCP",
+    "Port": 5432,
+    "Name": "Server Port",
+    "Description": "PostgreSQL TLS traffic",
+    "Ref": "ServerPort"
+  }
+]
