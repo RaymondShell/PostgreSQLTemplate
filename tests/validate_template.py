@@ -26,8 +26,6 @@ SCRIPT_NAMES = {
 }
 DIRECT_BASH_STAGES = {
     "Regenerate deterministic PostgreSQL HBA before start": "{{$FullBaseDir}}render-hba.sh",
-    "Run PostgreSQL with fail-closed TLS selection": "{{$FullBaseDir}}start-postgres.sh",
-    "Verify exact PostgreSQL instance and TLS state": "{{$FullBaseDir}}verify-postgres.sh",
 }
 USER_TOKENS = {
     "{{ServerVersion}}",
@@ -141,6 +139,7 @@ def validate_kvp() -> None:
         "App.CommandLineArgs": "",
         "App.ExitMethod": "SIGTERM",
         "App.ExitTimeout": "45",
+        "App.Compatibility": "None",
         "App.HasWriteableConsole": "False",
         "App.HasReadableConsole": "True",
         "App.ApplicationReadyMode": "RegexMatch",
@@ -239,22 +238,17 @@ def validate_kvp() -> None:
         "Refresh deterministic PostgreSQL HBA renderer before start"
     ) >= start_names.index("Regenerate deterministic PostgreSQL HBA before start"):
         raise AssertionError("HBA renderer is executed before its reviewed refresh")
-    for refresh_name, run_name, script_name, run_in_background in (
+    for refresh_name, script_name in (
         (
             "Refresh PostgreSQL launch script before start",
-            "Run PostgreSQL with fail-closed TLS selection",
             "start-postgres.sh",
-            True,
         ),
         (
             "Refresh PostgreSQL verification script before start",
-            "Verify exact PostgreSQL instance and TLS state",
             "verify-postgres.sh",
-            False,
         ),
     ):
         refresh = start_stages.get(refresh_name, {})
-        run = start_stages.get(run_name, {})
         expected_path = "{{$FullBaseDir}}" + script_name
         if (
             refresh.get("UpdateSource") != "CreateFile"
@@ -265,14 +259,48 @@ def validate_kvp() -> None:
             or "BASH_SOURCE[0]" not in refresh.get("UpdateSourceData", "")
             or 'Settings="${ScriptDirectory}/settings"'
             not in refresh.get("UpdateSourceData", "")
-            or run.get("UpdateSourceData") != "/bin/bash"
-            or run.get("UpdateSourceArgs") != expected_path
-            or run.get("SkipOnFailure") is not False
-            or run.get("RunInBackground", False) is not run_in_background
-            or "-c" in run.get("UpdateSourceArgs", "")
-            or start_names.index(run_name) != start_names.index(refresh_name) + 1
         ):
-            raise AssertionError(f"{run_name} still depends on AMP shell-string parsing")
+            raise AssertionError(f"invalid fail-closed startup script refresh: {refresh_name}")
+    if any(stage.get("RunInBackground") is True for stage in ordered_start_stages):
+        raise AssertionError("PreStart still owns a background PostgreSQL process")
+    if {
+        "Run PostgreSQL with fail-closed TLS selection",
+        "Verify exact PostgreSQL instance and TLS state",
+    }.intersection(start_stages):
+        raise AssertionError("PostgreSQL launch or verification still runs as PreStart")
+    launch_body = start_stages["Refresh PostgreSQL launch script before start"].get(
+        "UpdateSourceData", ""
+    )
+    verify_body = start_stages[
+        "Refresh PostgreSQL verification script before start"
+    ].get("UpdateSourceData", "")
+    if (
+        'exec "${Base}pgsql/bin/postgres"' not in launch_body
+        or 'postgres.pid" --listen_addresses="$ListenAddress" "${TLSArgs[@]}" &' in launch_body
+        or "cleanup_on_error" in verify_body
+        or "-m immediate stop" in verify_body
+    ):
+        raise AssertionError("foreground supervisor does not exclusively own cleanup")
+    supervisor_body = staged_supervisor.get("UpdateSourceData", "")
+    supervisor_markers = (
+        '/bin/bash -- "$StartScript" &',
+        "trap ':' HUP",
+        "trap record_stop_request TERM INT",
+        'StartTime=$(read_proc_start_token "$PostgresChildPid")',
+        'VerifierPid=$!\nif ((StopRequested)); then',
+        'CandidatePid" == "$PostgresChildPid',
+        'timeout=25',
+        '/bin/bash -- "$VerifyScript"',
+        "AMP_POSTGRESQL_SUPERVISOR_READY",
+    )
+    if not all(marker in supervisor_body for marker in supervisor_markers):
+        raise AssertionError("foreground supervisor ownership contract is incomplete")
+    if not (
+        supervisor_body.index('/bin/bash -- "$StartScript" &')
+        < supervisor_body.index('/bin/bash -- "$VerifyScript"')
+        < supervisor_body.index("AMP_POSTGRESQL_SUPERVISOR_READY")
+    ):
+        raise AssertionError("supervisor emits readiness before launch and verification")
     renderer_body = renderer_install.get("UpdateSourceData", "")
     if (
         "BASH_SOURCE[0]" not in renderer_body
