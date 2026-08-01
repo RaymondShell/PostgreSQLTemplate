@@ -81,16 +81,16 @@ def find_bash() -> str:
 
 
 def validate_kvp() -> None:
-    keys: set[str] = set()
+    values: dict[str, str] = {}
     for line in (ROOT / "postgresqltls.kvp").read_text(encoding="utf-8").splitlines():
         if not line or line.startswith("#"):
             continue
-        key, separator, _ = line.partition("=")
+        key, separator, value = line.partition("=")
         if not separator:
             raise AssertionError(f"invalid KVP line: {line}")
-        if key in keys:
+        if key in values:
             raise AssertionError(f"duplicate KVP key: {key}")
-        keys.add(key)
+        values[key] = value
     required = {
         "Meta.ConfigManifest",
         "Meta.MetaConfigManifest",
@@ -99,8 +99,17 @@ def validate_kvp() -> None:
         "App.PreStartStages",
         "App.EnvironmentVariables",
     }
-    if not required.issubset(keys):
+    if not required.issubset(values):
         raise AssertionError("required KVP entries are missing")
+    if values.get("App.ApplicationReadyMode") != "RegexMatch":
+        raise AssertionError("AMP application readiness mode is invalid")
+    expected_filter = (
+        r"\e\[(\d+;)*(\d+)?[ABCDHJKfmsu]|\e\[?[?\>\=\da-z]+"
+    )
+    if values.get("Console.FilterMatchRegex") != expected_filter:
+        raise AssertionError("AMP console filter regex is invalid")
+    if values.get("Console.AppReadyRegex") != r'^Type "help" for help\.$':
+        raise AssertionError("AMP psql readiness regex is invalid")
 
 
 def validate_adversarial_inputs(bash: str, scripts: dict[str, str]) -> None:
