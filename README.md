@@ -17,7 +17,11 @@ build and defaults to no remotely usable database/role.
 - Local AMP console access uses operating-system peer authentication; no AMP
   database password is embedded in the template or process environment.
 - Remote plaintext is rejected for IPv4 and IPv6 before narrow `hostssl` rules.
-- Remote access defaults to a deliberately nonexistent database and role plus
+- Primary application, remote administration, commercial runtime, ticket
+  authorizer and migration identities have separate bounded rules.
+- Every remote CIDR is an exact IPv4 `/32` or IPv6 `/128`; HBA special tokens,
+  the local `amp` superuser and duplicate remote identities are rejected.
+- Remote application identities default to deliberately nonexistent roles plus
   loopback-only CIDRs.
 - If no certificate is installed, local administration starts but all remote
   TCP access remains rejected.
@@ -38,21 +42,46 @@ Create a new instance using `PostgreSQL TLS`. Keep the exact PostgreSQL version
 and SHA-256 paired. Never change major versions without `pg_upgrade` or a tested
 logical dump/restore migration.
 
-## Configure remote access
+## Configure the bounded remote identities
 
-Before exposing the AMP port:
+The template stages the desired remote HBA atomically before every start, then
+installs a local-only active HBA. After PostgreSQL is reachable through its Unix
+socket, it verifies the configured role attributes, promotes the staged rules
+and reloads them. A malformed setting or unsafe role stops startup without ever
+activating remote access. AMP configuration changes therefore take effect on
+the next ordinary restart; an AMP update is still required once to install this
+template version.
 
-1. Set `Remote TLS Database` to the exact database.
-2. Set `Remote TLS Role` to a dedicated `NOSUPERUSER NOBYPASSRLS` login, never
-   the local `amp` superuser.
-3. Set the IPv4/IPv6 CIDRs to the smallest control-plane or private VPN ranges.
-4. Use the local AMP console to create the database/login with a new secret.
-5. Keep the migration login disabled except during a controlled maintenance
-   window; do not make it the template's permanent remote role.
+Configure each purpose explicitly:
 
-The HBA file is regenerated deterministically on AMP updates. Plain TCP is
-always rejected. Restrict the host firewall to the same CIDRs as an additional
-layer.
+| Purpose | Database setting | Role setting | Source setting |
+| --- | --- | --- | --- |
+| BazaarManager | `bazaarmanager` | `bazaarmanager` | exact BazaarManager host IP |
+| pgAdmin | `postgres,bazaarmanager,huntingmacro_commercial` | `pgadmin4_admin` | exact pgAdmin/VPN client IP |
+| Commercial runtime | `huntingmacro_commercial` | `hm_commercial_runtime` | exact control-plane host IP |
+| Ticket authorizer | `huntingmacro_commercial` | `hm_commercial_authorizer` | exact control-plane host IP |
+| Migrations | `huntingmacro_commercial` | `hm_commercial_migrator` | exact deployment host IP |
+
+For pgAdmin, enter the client PC's current public or private VPN address as an
+exact `/32` in **Administrative IPv4 Host CIDR**. Leave the corresponding IPv6
+setting at `::1/128` when IPv6 is not used. Prefer a private VPN address because
+a public client address can change; update the AMP setting before restarting if
+it does. Never commit a live client address to this repository.
+
+The runtime, authorizer, migrator, administrator and primary application roles
+must all be different. HBA only controls which connection tuple may reach
+PostgreSQL; SQL grants still enforce what each login can do. Startup requires
+every real remote role to be `NOSUPERUSER NOREPLICATION NOBYPASSRLS`. Primary,
+runtime and authorizer must also be `LOGIN NOCREATEDB NOCREATEROLE`; runtime and
+authorizer may not own the commercial database or have any role memberships.
+The migrator must be `NOLOGIN NOCREATEDB NOCREATEROLE` at startup. The pgAdmin
+role may retain `CREATEDB`/`CREATEROLE`, but it cannot be a superuser. Use the
+local `amp` console for superuser-only work. Temporarily grant the migrator
+`LOGIN` only after a successful start, then restore `NOLOGIN` immediately after
+the controlled migration and before the next restart.
+
+Plain TCP is always rejected. Restrict the host firewall to the same exact
+source addresses as a second layer.
 
 ## Install the certificate
 
@@ -94,8 +123,10 @@ use:
 - wrong hostname and wrong CA fail;
 - `sslmode=disable` is rejected;
 - disallowed IPv4/IPv6 sources fail;
-- only the configured database/role match remotely; and
-- the runtime role is non-owner, `NOSUPERUSER` and `NOBYPASSRLS`.
+- only the configured purpose-specific database/role/source tuples match;
+- all remote identities are distinct; and
+- runtime and authorizer are non-owner, `NOSUPERUSER`, `NOREPLICATION` and
+  `NOBYPASSRLS` while the migrator returns to `NOLOGIN` after deployment.
 
 Rotate any credential previously placed in chat or logs. Do not include the TLS
 private key in ordinary AMP exports. Use a clean shutdown/storage snapshot or

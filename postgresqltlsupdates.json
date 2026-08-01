@@ -102,6 +102,102 @@
     "OverwriteExistingFiles": true
   },
   {
+    "UpdateStageName": "Render administrative PostgreSQL database setting",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateFile",
+    "UpdateSourceData": "{{AdminDatabases}}",
+    "UpdateSourceArgs": "{{$FullBaseDir}}settings/admin-databases",
+    "OverwriteExistingFiles": true
+  },
+  {
+    "UpdateStageName": "Render administrative PostgreSQL role setting",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateFile",
+    "UpdateSourceData": "{{AdminRole}}",
+    "UpdateSourceArgs": "{{$FullBaseDir}}settings/admin-role",
+    "OverwriteExistingFiles": true
+  },
+  {
+    "UpdateStageName": "Render administrative PostgreSQL IPv4 CIDR setting",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateFile",
+    "UpdateSourceData": "{{AdminIPv4CIDR}}",
+    "UpdateSourceArgs": "{{$FullBaseDir}}settings/admin-ipv4-cidr",
+    "OverwriteExistingFiles": true
+  },
+  {
+    "UpdateStageName": "Render administrative PostgreSQL IPv6 CIDR setting",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateFile",
+    "UpdateSourceData": "{{AdminIPv6CIDR}}",
+    "UpdateSourceArgs": "{{$FullBaseDir}}settings/admin-ipv6-cidr",
+    "OverwriteExistingFiles": true
+  },
+  {
+    "UpdateStageName": "Render commercial PostgreSQL database setting",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateFile",
+    "UpdateSourceData": "{{CommercialDatabase}}",
+    "UpdateSourceArgs": "{{$FullBaseDir}}settings/commercial-database",
+    "OverwriteExistingFiles": true
+  },
+  {
+    "UpdateStageName": "Render commercial PostgreSQL runtime role setting",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateFile",
+    "UpdateSourceData": "{{CommercialRuntimeRole}}",
+    "UpdateSourceArgs": "{{$FullBaseDir}}settings/commercial-runtime-role",
+    "OverwriteExistingFiles": true
+  },
+  {
+    "UpdateStageName": "Render commercial PostgreSQL authorizer role setting",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateFile",
+    "UpdateSourceData": "{{CommercialAuthorizerRole}}",
+    "UpdateSourceArgs": "{{$FullBaseDir}}settings/commercial-authorizer-role",
+    "OverwriteExistingFiles": true
+  },
+  {
+    "UpdateStageName": "Render commercial PostgreSQL migrator role setting",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateFile",
+    "UpdateSourceData": "{{CommercialMigratorRole}}",
+    "UpdateSourceArgs": "{{$FullBaseDir}}settings/commercial-migrator-role",
+    "OverwriteExistingFiles": true
+  },
+  {
+    "UpdateStageName": "Render commercial PostgreSQL service IPv4 CIDR setting",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateFile",
+    "UpdateSourceData": "{{CommercialServiceIPv4CIDR}}",
+    "UpdateSourceArgs": "{{$FullBaseDir}}settings/commercial-service-ipv4-cidr",
+    "OverwriteExistingFiles": true
+  },
+  {
+    "UpdateStageName": "Render commercial PostgreSQL service IPv6 CIDR setting",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateFile",
+    "UpdateSourceData": "{{CommercialServiceIPv6CIDR}}",
+    "UpdateSourceArgs": "{{$FullBaseDir}}settings/commercial-service-ipv6-cidr",
+    "OverwriteExistingFiles": true
+  },
+  {
+    "UpdateStageName": "Render commercial PostgreSQL migration IPv4 CIDR setting",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateFile",
+    "UpdateSourceData": "{{CommercialMigrationIPv4CIDR}}",
+    "UpdateSourceArgs": "{{$FullBaseDir}}settings/commercial-migration-ipv4-cidr",
+    "OverwriteExistingFiles": true
+  },
+  {
+    "UpdateStageName": "Render commercial PostgreSQL migration IPv6 CIDR setting",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateFile",
+    "UpdateSourceData": "{{CommercialMigrationIPv6CIDR}}",
+    "UpdateSourceArgs": "{{$FullBaseDir}}settings/commercial-migration-ipv6-cidr",
+    "OverwriteExistingFiles": true
+  },
+  {
     "UpdateStageName": "Build checksum-verified PostgreSQL with OpenSSL",
     "UpdateSourcePlatform": "Linux",
     "UpdateSource": "Executable",
@@ -110,11 +206,19 @@
     "SkipOnFailure": false
   },
   {
+    "UpdateStageName": "Install deterministic PostgreSQL HBA renderer",
+    "UpdateSourcePlatform": "Linux",
+    "UpdateSource": "CreateFile",
+    "UpdateSourceData": "#!/usr/bin/env bash\nset -euo pipefail\nSettings=postgresql/settings\nBase=$(<\"$Settings/base-dir\")\nAllowedDatabase=$(<\"$Settings/allowed-database\")\nAllowedRole=$(<\"$Settings/allowed-role\")\nAllowedIPv4CIDR=$(<\"$Settings/allowed-ipv4-cidr\")\nAllowedIPv6CIDR=$(<\"$Settings/allowed-ipv6-cidr\")\nAdminDatabases=$(<\"$Settings/admin-databases\")\nAdminRole=$(<\"$Settings/admin-role\")\nAdminIPv4CIDR=$(<\"$Settings/admin-ipv4-cidr\")\nAdminIPv6CIDR=$(<\"$Settings/admin-ipv6-cidr\")\nCommercialDatabase=$(<\"$Settings/commercial-database\")\nCommercialRuntimeRole=$(<\"$Settings/commercial-runtime-role\")\nCommercialAuthorizerRole=$(<\"$Settings/commercial-authorizer-role\")\nCommercialMigratorRole=$(<\"$Settings/commercial-migrator-role\")\nCommercialServiceIPv4CIDR=$(<\"$Settings/commercial-service-ipv4-cidr\")\nCommercialServiceIPv6CIDR=$(<\"$Settings/commercial-service-ipv6-cidr\")\nCommercialMigrationIPv4CIDR=$(<\"$Settings/commercial-migration-ipv4-cidr\")\nCommercialMigrationIPv6CIDR=$(<\"$Settings/commercial-migration-ipv6-cidr\")\nfail() { echo \"$1\"; exit 1; }\nvalidate_identifier() { local Label=$1 Value=$2 Lower; [[ \"$Value\" =~ ^[A-Za-z_][A-Za-z0-9_]{0,62}$ ]] || fail \"Invalid $Label identifier\"; Lower=${Value,,}; case \"$Lower\" in all|sameuser|samerole|samegroup|replication) fail \"Reserved HBA token is not allowed for $Label\" ;; esac; }\nvalidate_role() { validate_identifier \"$1\" \"$2\"; [[ \"${2,,}\" != amp ]] || fail 'The local AMP superuser cannot be exposed remotely'; }\nvalidate_database_list() { local Value=$1 Item; [[ ${#Value} -le 511 && \"$Value\" != ,* && \"$Value\" != *, && \"$Value\" != *,,* ]] || fail 'Invalid administrative database list'; IFS=',' read -ra Items <<< \"$Value\"; ((${#Items[@]} >= 1 && ${#Items[@]} <= 8)) || fail 'Administrative database list must contain one to eight exact databases'; for Item in \"${Items[@]}\"; do validate_identifier 'administrative database' \"$Item\"; done; }\nvalidate_cidr() { local Label=$1 Value=$2 Family=$3 ExactPrefix=$4 Address Prefix; [[ \"$Value\" =~ ^([^/]+)/([0-9]{1,3})$ ]] || fail \"Invalid $Label CIDR\"; Address=${BASH_REMATCH[1]}; Prefix=$((10#${BASH_REMATCH[2]})); [[ \"$Prefix\" == \"$ExactPrefix\" ]] || fail \"$Label must be an exact /$ExactPrefix host CIDR\"; if [[ \"$Family\" == 4 ]]; then perl -MSocket=AF_INET,inet_pton -e 'exit(defined inet_pton(AF_INET, $ARGV[0]) ? 0 : 1)' \"$Address\" || fail \"Invalid $Label IPv4 address\"; else perl -MSocket=AF_INET6,inet_pton -e 'exit(defined inet_pton(AF_INET6, $ARGV[0]) ? 0 : 1)' \"$Address\" || fail \"Invalid $Label IPv6 address\"; fi; }\n[[ \"$Base\" == /*/ && \"$Base\" != *$'\\n'* && \"$Base\" != *$'\\r'* ]] || fail 'Invalid AMP PostgreSQL base directory'\nvalidate_identifier 'primary database' \"$AllowedDatabase\"\nvalidate_role 'primary role' \"$AllowedRole\"\nvalidate_cidr 'primary' \"$AllowedIPv4CIDR\" 4 32\nvalidate_cidr 'primary' \"$AllowedIPv6CIDR\" 6 128\nvalidate_database_list \"$AdminDatabases\"\nvalidate_role 'administrative role' \"$AdminRole\"\nvalidate_cidr 'administrative' \"$AdminIPv4CIDR\" 4 32\nvalidate_cidr 'administrative' \"$AdminIPv6CIDR\" 6 128\nvalidate_identifier 'commercial database' \"$CommercialDatabase\"\nvalidate_role 'commercial runtime role' \"$CommercialRuntimeRole\"\nvalidate_role 'commercial authorizer role' \"$CommercialAuthorizerRole\"\nvalidate_role 'commercial migrator role' \"$CommercialMigratorRole\"\nvalidate_cidr 'commercial service' \"$CommercialServiceIPv4CIDR\" 4 32\nvalidate_cidr 'commercial service' \"$CommercialServiceIPv6CIDR\" 6 128\nvalidate_cidr 'commercial migration' \"$CommercialMigrationIPv4CIDR\" 4 32\nvalidate_cidr 'commercial migration' \"$CommercialMigrationIPv6CIDR\" 6 128\ndeclare -A SeenRoles=()\nfor Role in \"$AllowedRole\" \"$AdminRole\" \"$CommercialRuntimeRole\" \"$CommercialAuthorizerRole\" \"$CommercialMigratorRole\"; do Lower=${Role,,}; [[ -z \"${SeenRoles[$Lower]+present}\" ]] || fail 'Every remotely reachable PostgreSQL role must be distinct'; SeenRoles[$Lower]=present; done\n[[ -f \"${Base}data/PG_VERSION\" ]] || fail 'PostgreSQL data directory is not initialized'\nHba=\"${Base}data/pg_hba.conf\"\nPending=\"${Base}data/pg_hba.remote.pending\"\numask 077\nHbaNext=$(mktemp \"${Base}data/.pg_hba.conf.XXXXXX\")\ncleanup() { rm -f \"$HbaNext\"; }\ntrap cleanup EXIT\nprintf '%s\\n' 'local all amp peer' 'local all all scram-sha-256' 'hostnossl all all 0.0.0.0/0 reject' 'hostnossl all all ::0/0 reject' > \"$HbaNext\"\nprintf 'hostssl %s %s %s scram-sha-256\\n' \"$AllowedDatabase\" \"$AllowedRole\" \"$AllowedIPv4CIDR\" >> \"$HbaNext\"\nprintf 'hostssl %s %s %s scram-sha-256\\n' \"$AllowedDatabase\" \"$AllowedRole\" \"$AllowedIPv6CIDR\" >> \"$HbaNext\"\nprintf 'hostssl %s %s %s scram-sha-256\\n' \"$AdminDatabases\" \"$AdminRole\" \"$AdminIPv4CIDR\" >> \"$HbaNext\"\nprintf 'hostssl %s %s %s scram-sha-256\\n' \"$AdminDatabases\" \"$AdminRole\" \"$AdminIPv6CIDR\" >> \"$HbaNext\"\nfor Role in \"$CommercialRuntimeRole\" \"$CommercialAuthorizerRole\"; do printf 'hostssl %s %s %s scram-sha-256\\n' \"$CommercialDatabase\" \"$Role\" \"$CommercialServiceIPv4CIDR\" >> \"$HbaNext\"; printf 'hostssl %s %s %s scram-sha-256\\n' \"$CommercialDatabase\" \"$Role\" \"$CommercialServiceIPv6CIDR\" >> \"$HbaNext\"; done\nprintf 'hostssl %s %s %s scram-sha-256\\n' \"$CommercialDatabase\" \"$CommercialMigratorRole\" \"$CommercialMigrationIPv4CIDR\" >> \"$HbaNext\"\nprintf 'hostssl %s %s %s scram-sha-256\\n' \"$CommercialDatabase\" \"$CommercialMigratorRole\" \"$CommercialMigrationIPv6CIDR\" >> \"$HbaNext\"\nchmod 0600 \"$HbaNext\"\nmv -f \"$HbaNext\" \"$Pending\"\nHbaNext=$(mktemp \"${Base}data/.pg_hba.conf.XXXXXX\")\nprintf '%s\\n' 'local all amp peer' 'local all all scram-sha-256' 'hostnossl all all 0.0.0.0/0 reject' 'hostnossl all all ::0/0 reject' > \"$HbaNext\"\nchmod 0600 \"$HbaNext\"\nmv -f \"$HbaNext\" \"$Hba\"\ntrap - EXIT\necho 'Staged deterministic remote HBA rules and installed local-only preflight HBA'\n",
+    "UpdateSourceArgs": "{{$FullBaseDir}}render-hba.sh",
+    "OverwriteExistingFiles": true
+  },
+  {
     "UpdateStageName": "Initialize PostgreSQL and enforce TLS-only remote HBA",
     "UpdateSourcePlatform": "Linux",
     "UpdateSource": "Executable",
     "UpdateSourceData": "/bin/bash",
-    "UpdateSourceArgs": "-c \"set -euo pipefail; Settings=postgresql/settings; Base=$(<\\\"$Settings/base-dir\\\"); AllowedDatabase=$(<\\\"$Settings/allowed-database\\\"); AllowedRole=$(<\\\"$Settings/allowed-role\\\"); AllowedIPv4CIDR=$(<\\\"$Settings/allowed-ipv4-cidr\\\"); AllowedIPv6CIDR=$(<\\\"$Settings/allowed-ipv6-cidr\\\"); [[ \\\"$Base\\\" == /*/ && \\\"$Base\\\" != *$'\\n'* && \\\"$Base\\\" != *$'\\r'* ]] || { echo 'Invalid AMP PostgreSQL base directory'; exit 1; }; [[ \\\"$AllowedDatabase\\\" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo 'Invalid allowed database identifier'; exit 1; }; [[ \\\"$AllowedRole\\\" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo 'Invalid allowed role identifier'; exit 1; }; [[ \\\"$AllowedIPv4CIDR\\\" =~ ^[0-9./]+$ ]] || { echo 'Invalid IPv4 CIDR characters'; exit 1; }; [[ \\\"$AllowedIPv6CIDR\\\" =~ ^[0-9a-fA-F:./]+$ ]] || { echo 'Invalid IPv6 CIDR characters'; exit 1; }; cd \\\"$Base\\\"; if [[ ! -f \\\"${Base}data/PG_VERSION\\\" ]]; then pgsql/bin/initdb --pgdata=\\\"${Base}data\\\" --auth-local=peer --auth-host=reject --username=amp; echo 'Initialized PostgreSQL with local peer authentication and remote reject defaults'; fi; Hba=\\\"${Base}data/pg_hba.conf\\\"; umask 077; printf '%s\\n' 'local all amp peer' 'local all all scram-sha-256' 'hostnossl all all 0.0.0.0/0 reject' 'hostnossl all all ::0/0 reject' \\\"hostssl $AllowedDatabase $AllowedRole $AllowedIPv4CIDR scram-sha-256\\\" \\\"hostssl $AllowedDatabase $AllowedRole $AllowedIPv6CIDR scram-sha-256\\\" > \\\"$Hba\\\"; echo 'Installed deterministic TLS-only remote HBA rules'\"",
+    "UpdateSourceArgs": "-c \"set -euo pipefail; Settings=postgresql/settings; Base=$(<\\\"$Settings/base-dir\\\"); [[ \\\"$Base\\\" == /*/ && \\\"$Base\\\" != *$'\\n'* && \\\"$Base\\\" != *$'\\r'* ]] || { echo 'Invalid AMP PostgreSQL base directory'; exit 1; }; if [[ ! -f \\\"${Base}data/PG_VERSION\\\" ]]; then \\\"${Base}pgsql/bin/initdb\\\" --pgdata=\\\"${Base}data\\\" --auth-local=peer --auth-host=reject --username=amp; echo 'Initialized PostgreSQL with local peer authentication and remote reject defaults'; fi; /bin/bash \\\"${Base}render-hba.sh\\\"\"",
     "SkipOnFailure": false
   }
 ]
