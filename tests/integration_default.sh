@@ -47,6 +47,16 @@ run_stage() {
   runuser -u "$TestUser" -- bash "$ExtractedScripts/$stage"
 }
 
+wait_for_postgres() {
+  local timeout=60
+  while ((timeout--)); do
+    runuser -u "$TestUser" -- "${Base}pgsql/bin/pg_isready" --host="${Base}run" --port="$Port" --username=amp --dbname=postgres >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  echo 'PostgreSQL did not become ready for local integration setup'
+  return 1
+}
+
 cleanup() {
   if [[ -x "${Base}pgsql/bin/pg_ctl" && -f "${Base}data/postmaster.pid" ]]; then
     runuser -u "$TestUser" -- env "PGDATA=${Base}data" "${Base}pgsql/bin/pg_ctl" -m immediate stop || true
@@ -74,6 +84,7 @@ fi
 ! runuser -u "$TestUser" -- "${Base}pgsql/bin/pg_isready" --host="${Base}run" --port="$Port" >/dev/null 2>&1
 [[ $(grep -c '^hostssl ' "${Base}data/pg_hba.conf" || true) == 0 ]]
 run_stage start.sh
+wait_for_postgres
 runuser -u "$TestUser" -- "${Psql[@]}" --command='DROP ROLE "REPLACE_ADMIN_BEFORE_REMOTE_USE"'
 runuser -u "$TestUser" -- "${Psql[@]}" --command="CREATE ROLE bazaarmanager LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
 runuser -u "$TestUser" -- "${Psql[@]}" --command="CREATE ROLE pgadmin4_admin LOGIN NOSUPERUSER CREATEDB CREATEROLE NOREPLICATION NOBYPASSRLS"
