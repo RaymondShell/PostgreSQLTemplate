@@ -19,7 +19,7 @@ SCRIPT_FILES = ("postgresqltlsupdates.json", "postgresqltlsstart.json")
 SCRIPT_NAMES = {
     "Build checksum-verified PostgreSQL with OpenSSL": "build.sh",
     "Install deterministic PostgreSQL HBA renderer": "render-hba.sh",
-    "Install PostgreSQL lifecycle supervisor": "supervise.sh",
+    "Stage PostgreSQL lifecycle supervisor": "supervise.sh",
     "Initialize PostgreSQL and enforce TLS-only remote HBA": "initialize.sh",
     "Run PostgreSQL with fail-closed TLS selection": "start.sh",
     "Verify exact PostgreSQL instance and TLS state": "verify.sh",
@@ -144,19 +144,60 @@ def validate_kvp() -> None:
     for key, expected in lifecycle.items():
         if values.get(key) != expected:
             raise AssertionError(f"invalid AMP supervisor lifecycle setting: {key}")
+    ordered_update_stages = load_json("postgresqltlsupdates.json")
     update_stages = {
-        stage["UpdateStageName"]: stage for stage in load_json("postgresqltlsupdates.json")
+        stage["UpdateStageName"]: stage for stage in ordered_update_stages
     }
-    install = update_stages.get("Install PostgreSQL lifecycle supervisor", {})
-    restrict = update_stages.get("Restrict PostgreSQL lifecycle supervisor permissions", {})
-    if install.get("UpdateSourceArgs") != "{{$FullBaseDir}}supervise.sh":
-        raise AssertionError("AMP supervisor is not installed at its executable path")
-    if (
-        restrict.get("UpdateSourceData") != "/bin/chmod"
-        or restrict.get("UpdateSourceArgs") != "0500 {{$FullBaseDir}}supervise.sh"
-        or restrict.get("SkipOnFailure") is not False
+    supervisor_update_contract = (
+        (
+            "Remove stale staged PostgreSQL lifecycle supervisor",
+            "Executable",
+            "/bin/rm",
+            "-f -- {{$FullBaseDir}}supervise.sh.next",
+        ),
+        (
+            "Stage PostgreSQL lifecycle supervisor",
+            "CreateFile",
+            None,
+            "{{$FullBaseDir}}supervise.sh.next",
+        ),
+        (
+            "Restrict staged PostgreSQL lifecycle supervisor permissions",
+            "Executable",
+            "/bin/chmod",
+            "0500 {{$FullBaseDir}}supervise.sh.next",
+        ),
+        (
+            "Activate PostgreSQL lifecycle supervisor",
+            "Executable",
+            "/bin/mv",
+            "-Tf -- {{$FullBaseDir}}supervise.sh.next {{$FullBaseDir}}supervise.sh",
+        ),
+    )
+    update_names = [stage["UpdateStageName"] for stage in ordered_update_stages]
+    contract_names = [spec[0] for spec in supervisor_update_contract]
+    contract_start = update_names.index(contract_names[0])
+    if update_names[contract_start : contract_start + len(contract_names)] != contract_names:
+        raise AssertionError("AMP supervisor replacement stages are not contiguous and ordered")
+    for name, source, executable, arguments in supervisor_update_contract:
+        stage = update_stages.get(name, {})
+        if (
+            stage.get("UpdateSourcePlatform") != "Linux"
+            or stage.get("UpdateSource") != source
+            or stage.get("UpdateSourceArgs") != arguments
+            or stage.get("SkipOnFailure") is not False
+            or (executable is not None and stage.get("UpdateSourceData") != executable)
+        ):
+            raise AssertionError(f"invalid fail-closed supervisor replacement stage: {name}")
+    staged_supervisor = update_stages["Stage PostgreSQL lifecycle supervisor"]
+    if staged_supervisor.get("OverwriteExistingFiles") is not True:
+        raise AssertionError("staged supervisor replacement is not overwrite-enabled")
+    if any(
+        stage.get("UpdateSourceData") == "/bin/chmod"
+        and stage.get("UpdateSourceArgs") == "0500 {{$FullBaseDir}}supervise.sh"
+        for stage in ordered_update_stages
     ):
-        raise AssertionError("AMP supervisor executable permissions are not fail-closed")
+        raise AssertionError("active supervisor is chmodded after atomic activation")
     ordered_start_stages = load_json("postgresqltlsstart.json")
     start_stages = {
         stage["UpdateStageName"]: stage for stage in ordered_start_stages
@@ -491,7 +532,23 @@ def validate_supervisor_lifecycle(bash: str, scripts: dict[str, str]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--extract-dir", type=Path)
+    parser.add_argument("--extract-only", action="store_true")
     args = parser.parse_args()
+
+    if args.extract_only and not args.extract_dir:
+        parser.error("--extract-only requires --extract-dir")
+
+    if args.extract_only:
+        scripts = extract_scripts()
+        args.extract_dir.mkdir(parents=True, exist_ok=True)
+        for name, body in scripts.items():
+            target = args.extract_dir / name
+            target.write_text(
+                "#!/usr/bin/env bash\n" + body + "\n", encoding="utf-8", newline="\n"
+            )
+            target.chmod(0o755)
+        print("Executable stages extracted")
+        return 0
 
     for name in (
         "manifest.json",

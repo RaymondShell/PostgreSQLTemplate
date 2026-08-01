@@ -158,6 +158,11 @@ For a PostgreSQL security update within the same major:
 4. stop/update/start the instance; and
 5. repeat the TLS/HBA negative test matrix.
 
+Template updates replace the lifecycle supervisor through a restricted staging
+file. The staged file is set to mode `0500` before it is atomically renamed over
+the active supervisor, so a failed write never leaves a partial executable at
+the launch path and an existing read-only supervisor does not block the update.
+
 Review and deliberately update the pinned AMP base-image digest when adopting a
 new base image. Do not replace it with a floating tag.
 

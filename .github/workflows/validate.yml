@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Extract the exact executable stages
-        run: python3 tests/validate_template.py --extract-dir "$RUNNER_TEMP/extracted"
+        run: python3 tests/validate_template.py --extract-dir "$RUNNER_TEMP/extracted" --extract-only
       - name: Build and start the default release in the pinned AMP image
         run: |
           docker run --rm --entrypoint /bin/bash \
