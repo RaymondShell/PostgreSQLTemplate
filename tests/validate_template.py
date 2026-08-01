@@ -21,7 +21,6 @@ SCRIPT_NAMES = {
     "Install deterministic PostgreSQL HBA renderer": "render-hba.sh",
     "Install PostgreSQL lifecycle supervisor": "supervise.sh",
     "Initialize PostgreSQL and enforce TLS-only remote HBA": "initialize.sh",
-    "Regenerate deterministic PostgreSQL HBA before start": "regenerate-hba.sh",
     "Run PostgreSQL with fail-closed TLS selection": "start.sh",
     "Verify exact PostgreSQL instance and TLS state": "verify.sh",
 }
@@ -67,6 +66,10 @@ def extract_scripts() -> dict[str, str]:
                 scripts[SCRIPT_NAMES[name]] = body
                 continue
             if stage.get("UpdateSourceData") != "/bin/bash":
+                continue
+            if name == "Regenerate deterministic PostgreSQL HBA before start":
+                if stage.get("UpdateSourceArgs") != "{{$FullBaseDir}}render-hba.sh":
+                    raise AssertionError("HBA regeneration is not a direct fixed-path invocation")
                 continue
             wrapper = stage["UpdateSourceArgs"]
             if "\\\\" in wrapper:
@@ -154,6 +157,50 @@ def validate_kvp() -> None:
         or restrict.get("SkipOnFailure") is not False
     ):
         raise AssertionError("AMP supervisor executable permissions are not fail-closed")
+    ordered_start_stages = load_json("postgresqltlsstart.json")
+    start_stages = {
+        stage["UpdateStageName"]: stage for stage in ordered_start_stages
+    }
+    renderer_install = update_stages.get(
+        "Install deterministic PostgreSQL HBA renderer", {}
+    )
+    renderer_refresh = start_stages.get(
+        "Refresh deterministic PostgreSQL HBA renderer before start", {}
+    )
+    renderer_run = start_stages.get(
+        "Regenerate deterministic PostgreSQL HBA before start", {}
+    )
+    if (
+        renderer_refresh.get("UpdateSource") != "CreateFile"
+        or renderer_refresh.get("UpdateSourceData")
+        != renderer_install.get("UpdateSourceData")
+        or renderer_refresh.get("UpdateSourceArgs")
+        != "{{$FullBaseDir}}render-hba.sh"
+        or renderer_refresh.get("OverwriteExistingFiles") is not True
+        or renderer_refresh.get("SkipOnFailure") is not False
+    ):
+        raise AssertionError("PreStart does not refresh the reviewed HBA renderer")
+    if (
+        renderer_run.get("UpdateSourceData") != "/bin/bash"
+        or renderer_run.get("UpdateSourceArgs")
+        != "{{$FullBaseDir}}render-hba.sh"
+        or renderer_run.get("SkipOnFailure") is not False
+        or "-c" in renderer_run.get("UpdateSourceArgs", "")
+    ):
+        raise AssertionError("HBA regeneration still depends on nested shell parsing")
+    start_names = [stage["UpdateStageName"] for stage in ordered_start_stages]
+    if start_names.index(
+        "Refresh deterministic PostgreSQL HBA renderer before start"
+    ) >= start_names.index("Regenerate deterministic PostgreSQL HBA before start"):
+        raise AssertionError("HBA renderer is executed before its reviewed refresh")
+    renderer_body = renderer_install.get("UpdateSourceData", "")
+    if (
+        "BASH_SOURCE[0]" not in renderer_body
+        or 'Settings="${ScriptDirectory}/settings"' not in renderer_body
+        or "HBA renderer path does not match" not in renderer_body
+        or 'Base="${ResolvedBase}/"' not in renderer_body
+    ):
+        raise AssertionError("HBA renderer is not self-locating and path-bound")
 
 
 def validate_adversarial_inputs(bash: str, scripts: dict[str, str]) -> None:
@@ -200,6 +247,11 @@ def validate_adversarial_inputs(bash: str, scripts: dict[str, str]) -> None:
             "commercial-migration-ipv6-cidr": "::1/128",
             "tls-hostname": "REPLACE_BEFORE_TLS_USE",
         }
+        renderer = base / "render-hba.sh"
+        renderer.write_text(
+            scripts["render-hba.sh"], encoding="utf-8", newline="\n"
+        )
+        renderer_arg = bash_base + "render-hba.sh"
         cases = [
             ("build.sh", "base-dir"),
             ("build.sh", "version"),
@@ -231,9 +283,14 @@ def validate_adversarial_inputs(bash: str, scripts: dict[str, str]) -> None:
             (settings / setting).write_text(hostile, encoding="utf-8")
             environment = os.environ.copy()
             environment["HM_MARKER"] = marker.as_posix()
+            command = (
+                [bash, renderer_arg]
+                if script_name == "render-hba.sh"
+                else [bash, "-c", scripts[script_name]]
+            )
             result = subprocess.run(
-                [bash, "-c", scripts[script_name]],
-                cwd=instance,
+                command,
+                cwd=instance.parent if script_name == "render-hba.sh" else instance,
                 env=environment,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -303,6 +360,11 @@ def validate_hba_generation(bash: str, scripts: dict[str, str]) -> None:
             "commercial-migration-ipv4-cidr": "192.0.2.30/32",
             "commercial-migration-ipv6-cidr": "::1/128",
         }
+        renderer = base / "render-hba.sh"
+        renderer.write_text(
+            scripts["render-hba.sh"], encoding="utf-8", newline="\n"
+        )
+        renderer_arg = bash_base + "render-hba.sh"
 
         def write_settings(values: dict[str, str]) -> None:
             for filename, value in values.items():
@@ -310,8 +372,8 @@ def validate_hba_generation(bash: str, scripts: dict[str, str]) -> None:
 
         def render() -> subprocess.CompletedProcess[str]:
             return subprocess.run(
-                [bash, "-c", scripts["render-hba.sh"]],
-                cwd=instance,
+                [bash, renderer_arg],
+                cwd=instance.parent,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -350,9 +412,6 @@ def validate_hba_generation(bash: str, scripts: dict[str, str]) -> None:
         if os.name != "nt" and (pending.stat().st_mode & 0o777) != 0o600:
             raise AssertionError("pending HBA mode is not 0600")
 
-        (base / "render-hba.sh").write_text(
-            scripts["render-hba.sh"], encoding="utf-8", newline="\n"
-        )
         changed = valid | {"admin-ipv4-cidr": "203.0.113.44/32"}
         write_settings(changed)
         initialize_result = subprocess.run(
@@ -374,15 +433,7 @@ def validate_hba_generation(bash: str, scripts: dict[str, str]) -> None:
 
         restarted = valid | {"admin-ipv4-cidr": "203.0.113.45/32"}
         write_settings(restarted)
-        restart_result = subprocess.run(
-            [bash, "-c", scripts["regenerate-hba.sh"]],
-            cwd=instance,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=10,
-            check=False,
-        )
+        restart_result = render()
         restarted_hba = pending.read_text(encoding="utf-8")
         if restart_result.returncode != 0:
             raise AssertionError(

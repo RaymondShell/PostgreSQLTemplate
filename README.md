@@ -45,12 +45,13 @@ logical dump/restore migration.
 ## Configure the bounded remote identities
 
 The template stages the desired remote HBA atomically before every start, then
-installs a local-only active HBA. After PostgreSQL is reachable through its Unix
-socket, it verifies the configured role attributes, promotes the staged rules
-and reloads them. A malformed setting or unsafe role stops startup without ever
-activating remote access. AMP configuration changes therefore take effect on
-the next ordinary restart; an AMP update is still required once to install this
-template version.
+refreshes and directly invokes a self-locating renderer without a nested shell
+command, then installs a local-only active HBA. After PostgreSQL is reachable
+through its Unix socket, it verifies the configured role attributes, promotes
+the staged rules and reloads them. A malformed setting or unsafe role stops
+startup without ever activating remote access. AMP configuration changes
+therefore take effect on the next ordinary restart; an AMP update is still
+required once to install this template version.
 
 After that verified PreStart gate, AMP launches a foreground supervisor. It
 pins the exact postmaster PID, Linux process start identity, executable, data

@@ -49,6 +49,10 @@ run_stage() {
   runuser -u "$TestUser" -- bash "$ExtractedScripts/$stage"
 }
 
+run_hba_renderer() {
+  runuser -u "$TestUser" -- bash "${Base}render-hba.sh"
+}
+
 wait_for_postgres() {
   local timeout=60
   while ((timeout--)); do
@@ -73,14 +77,14 @@ run_stage build.sh
 "${Base}pgsql/bin/pg_config" --configure | grep -Fq -- '--with-ssl=openssl'
 [[ $("${Base}pgsql/bin/postgres" -V) == 'postgres (PostgreSQL) 16.14' ]]
 run_stage initialize.sh
-run_stage regenerate-hba.sh
+run_hba_renderer
 run_stage start.sh
 run_stage verify.sh
 
 Psql=("${Base}pgsql/bin/psql" --host="${Base}run" --port="$Port" --username=amp --dbname=postgres --set=ON_ERROR_STOP=1)
 runuser -u "$TestUser" -- "${Psql[@]}" --command='CREATE ROLE "REPLACE_ADMIN_BEFORE_REMOTE_USE" LOGIN SUPERUSER'
 runuser -u "$TestUser" -- env "PGDATA=${Base}data" "${Base}pgsql/bin/pg_ctl" -m fast stop
-run_stage regenerate-hba.sh
+run_hba_renderer
 run_stage start.sh
 if run_stage verify.sh; then
   echo 'Existing placeholder superuser unexpectedly passed role-posture verification'
@@ -112,7 +116,7 @@ printf '%s' 'hm_commercial_authorizer' > "$Settings/commercial-authorizer-role"
 printf '%s' 'hm_commercial_migrator' > "$Settings/commercial-migrator-role"
 printf '%s' '192.0.2.20/32' > "$Settings/commercial-service-ipv4-cidr"
 printf '%s' '192.0.2.30/32' > "$Settings/commercial-migration-ipv4-cidr"
-run_stage regenerate-hba.sh
+run_hba_renderer
 [[ $(grep -c '^hostssl ' "${Base}data/pg_hba.conf" || true) == 0 ]]
 run_stage start.sh
 run_stage verify.sh
@@ -149,7 +153,7 @@ SupervisorProcessPid=
 ! runuser -u "$TestUser" -- "${Base}pgsql/bin/pg_isready" --host="${Base}run" --port="$Port" >/dev/null 2>&1
 [[ ! -f "${Base}data/postmaster.pid" ]]
 grep -Fxq 'Verified PostgreSQL postmaster stopped cleanly' "$SupervisorLog"
-run_stage regenerate-hba.sh
+run_hba_renderer
 run_stage start.sh
 run_stage verify.sh
 
@@ -158,7 +162,7 @@ runuser -u "$TestUser" -- "${Psql[@]}" --command="CREATE ROLE elevated_bridge NO
 runuser -u "$TestUser" -- "${Psql[@]}" --command="GRANT elevated_group TO elevated_bridge"
 runuser -u "$TestUser" -- "${Psql[@]}" --command="GRANT elevated_bridge TO pgadmin4_admin"
 runuser -u "$TestUser" -- env "PGDATA=${Base}data" "${Base}pgsql/bin/pg_ctl" -m fast stop
-run_stage regenerate-hba.sh
+run_hba_renderer
 run_stage start.sh
 if run_stage verify.sh; then
   echo 'Recursive access to a non-AMP superuser unexpectedly passed verification'
