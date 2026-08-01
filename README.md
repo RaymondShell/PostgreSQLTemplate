@@ -8,6 +8,8 @@ build and defaults to no remotely usable database/role.
 
 - AMP base image is referenced by OCI manifest digest, not a floating tag.
 - PostgreSQL version and its official source SHA-256 are explicit settings.
+- AMP renders update/start settings into separate data files; executable stages
+  read and validate them instead of interpolating settings into shell source.
 - The build requires `--with-ssl=openssl` and validates the exact installed
   `pg_config` and `postgres` binaries before switching the `pgsql` symlink.
 - Existing data directories cannot be opened by another PostgreSQL major.

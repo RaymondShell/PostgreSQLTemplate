@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ExtractedScripts=${1:?Pass the extracted-script directory}
-Base=/tmp/amp-postgresql-template/
+InstanceRoot=/tmp/amp-postgresql-template-instance
+Base=${InstanceRoot}/postgresql/
+Settings=${Base}settings
 TestUser=amp
 Port=55432
 
@@ -12,26 +14,24 @@ done
 test -f /usr/include/openssl/ssl.h
 
 useradd --create-home --shell /bin/bash "$TestUser"
-mkdir -p "${Base}data" "${Base}run" "${Base}tls" "${Base}releases"
-chown -R "$TestUser:$TestUser" "$Base"
-
-CommonEnv=(
-  "HM_PG_BASE_DIR=$Base"
-  "HM_PG_LISTEN_ADDRESS=127.0.0.1"
-  "HM_PG_RELEASE=16"
-  "HM_PG_VERSION=16.14"
-  "HM_PG_SOURCE_SHA256=ca18d43510bbb09a271383e1aa705b05b76bc8e9400f9857178ba8ec54cf461a"
-  "HM_PG_ALLOWED_DATABASE=REPLACE_BEFORE_REMOTE_USE"
-  "HM_PG_ALLOWED_ROLE=REPLACE_BEFORE_REMOTE_USE"
-  "HM_PG_ALLOWED_IPV4_CIDR=127.0.0.1/32"
-  "HM_PG_ALLOWED_IPV6_CIDR=::1/128"
-  "HM_PG_TLS_HOSTNAME=REPLACE_BEFORE_TLS_USE"
-  "PGPORT=$Port"
-)
+mkdir -p "${Base}data" "${Base}run" "${Base}tls" "${Base}releases" "$Settings"
+printf '%s' "$Base" > "$Settings/base-dir"
+printf '%s' "$Port" > "$Settings/port"
+printf '%s' '127.0.0.1' > "$Settings/listen-address"
+printf '%s' '16' > "$Settings/release"
+printf '%s' '16.14' > "$Settings/version"
+printf '%s' 'ca18d43510bbb09a271383e1aa705b05b76bc8e9400f9857178ba8ec54cf461a' > "$Settings/source-sha256"
+printf '%s' 'REPLACE_BEFORE_REMOTE_USE' > "$Settings/allowed-database"
+printf '%s' 'REPLACE_BEFORE_REMOTE_USE' > "$Settings/allowed-role"
+printf '%s' '127.0.0.1/32' > "$Settings/allowed-ipv4-cidr"
+printf '%s' '::1/128' > "$Settings/allowed-ipv6-cidr"
+printf '%s' 'REPLACE_BEFORE_TLS_USE' > "$Settings/tls-hostname"
+chown -R "$TestUser:$TestUser" "$InstanceRoot"
+cd "$InstanceRoot"
 
 run_stage() {
   local stage=$1
-  runuser -u "$TestUser" -- env "${CommonEnv[@]}" bash "$ExtractedScripts/$stage"
+  runuser -u "$TestUser" -- bash "$ExtractedScripts/$stage"
 }
 
 cleanup() {
@@ -48,8 +48,8 @@ run_stage initialize.sh
 run_stage start.sh
 run_stage verify.sh
 
-HbaErrors=$(runuser -u "$TestUser" -- "${Base}pgsql/bin/psql" --host="${Base}run" --port="$Port" --username=amp --dbname=postgres --tuples-only --no-align --command="SELECT count(*) FROM pg_hba_file_rules WHERE error IS NOT NULL")
-[[ "$HbaErrors" == '0' ]]
+HbaDiagnostics=$(runuser -u "$TestUser" -- "${Base}pgsql/bin/psql" --host="${Base}run" --port="$Port" --username=amp --dbname=postgres --tuples-only --no-align --field-separator='|' --command="SELECT count(*) FROM pg_hba_file_rules WHERE error IS NOT NULL; SELECT count(*) FROM pg_hba_file_rules WHERE type = 'hostssl' AND error = 'hostssl record cannot match because SSL is disabled'")
+[[ "$HbaDiagnostics" == $'2\n2' ]]
 grep -Fxq 'hostnossl all all 0.0.0.0/0 reject' "${Base}data/pg_hba.conf"
 grep -Fxq 'hostnossl all all ::0/0 reject' "${Base}data/pg_hba.conf"
 

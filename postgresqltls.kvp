@@ -38,7 +38,7 @@ App.WindowsCommandLineArgs=
 App.CommandLineArgs={{CustomClientOptions}} {{$PlatformArgs}} --username=amp --pset=pager=off {{$FormattedArgs}}
 App.UseLinuxIOREDIR=False
 App.AppSettings={}
-App.EnvironmentVariables={"PATH":"{{$FullBaseDir}}pgsql/bin:%PATH%","MANPATH":"{{$FullBaseDir}}pgsql/share/man","LD_LIBRARY_PATH":"{{$FullBaseDir}}pgsql/lib:%LD_LIBRARY_PATH%","PGDATA":"{{$FullBaseDir}}data","PGPORT":"{{$ServerPort}}","HM_PG_BASE_DIR":"{{$FullBaseDir}}","HM_PG_LISTEN_ADDRESS":"{{$ApplicationIPBinding}}","HM_PG_RELEASE":"{{ServerVersion}}","HM_PG_VERSION":"{{CustomServerVersion}}","HM_PG_SOURCE_SHA256":"{{PostgreSQLSourceSha256}}","HM_PG_ALLOWED_DATABASE":"{{AllowedDatabase}}","HM_PG_ALLOWED_ROLE":"{{AllowedRole}}","HM_PG_ALLOWED_IPV4_CIDR":"{{AllowedIPv4CIDR}}","HM_PG_ALLOWED_IPV6_CIDR":"{{AllowedIPv6CIDR}}","HM_PG_TLS_HOSTNAME":"{{TLSHostname}}"}
+App.EnvironmentVariables={"PATH":"{{$FullBaseDir}}pgsql/bin:%PATH%","MANPATH":"{{$FullBaseDir}}pgsql/share/man","LD_LIBRARY_PATH":"{{$FullBaseDir}}pgsql/lib:%LD_LIBRARY_PATH%","PGDATA":"{{$FullBaseDir}}data","PGPORT":"{{$ServerPort}}"}
 App.CommandLineParameterFormat=--{0}={1}
 App.CommandLineParameterDelimiter= 
 App.ExitMethod=String

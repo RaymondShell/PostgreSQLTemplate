@@ -56,6 +56,8 @@ def extract_scripts() -> dict[str, str]:
                 raise AssertionError(f"unrecognised executable stage: {name}")
             if any(token in body for token in USER_TOKENS):
                 raise AssertionError(f"AMP setting interpolated into shell source: {name}")
+            if "HM_PG_" in body:
+                raise AssertionError(f"runtime-only environment used by AMP stage: {name}")
             scripts[SCRIPT_NAMES[name]] = body
     if set(scripts) != set(SCRIPT_NAMES.values()):
         raise AssertionError("one or more expected executable stages are missing")
@@ -100,41 +102,47 @@ def validate_kvp() -> None:
 def validate_adversarial_inputs(bash: str, scripts: dict[str, str]) -> None:
     hostile = "'; touch \"$HM_MARKER\"; # $(touch \"$HM_MARKER\") `touch \"$HM_MARKER\"`\n"
     cases = [
-        ("build.sh", "HM_PG_VERSION"),
-        ("build.sh", "HM_PG_RELEASE"),
-        ("build.sh", "HM_PG_SOURCE_SHA256"),
-        ("initialize.sh", "HM_PG_ALLOWED_DATABASE"),
-        ("initialize.sh", "HM_PG_ALLOWED_ROLE"),
-        ("initialize.sh", "HM_PG_ALLOWED_IPV4_CIDR"),
-        ("initialize.sh", "HM_PG_ALLOWED_IPV6_CIDR"),
-        ("start.sh", "HM_PG_LISTEN_ADDRESS"),
+        ("build.sh", "base-dir"),
+        ("build.sh", "version"),
+        ("build.sh", "release"),
+        ("build.sh", "source-sha256"),
+        ("initialize.sh", "allowed-database"),
+        ("initialize.sh", "allowed-role"),
+        ("initialize.sh", "allowed-ipv4-cidr"),
+        ("initialize.sh", "allowed-ipv6-cidr"),
+        ("start.sh", "listen-address"),
     ]
     with tempfile.TemporaryDirectory(prefix="amp-pg-template-") as temp:
-        base = Path(temp)
+        instance = Path(temp)
+        base = instance / "postgresql"
+        settings = base / "settings"
+        settings.mkdir(parents=True)
         (base / "data").mkdir()
         (base / "run").mkdir()
         (base / "tls").mkdir()
-        marker = base / "injected"
+        marker = instance / "injected"
         defaults = {
-            "HM_PG_BASE_DIR": base.as_posix() + "/",
-            "HM_PG_LISTEN_ADDRESS": "127.0.0.1",
-            "HM_PG_RELEASE": "16",
-            "HM_PG_VERSION": "16.14",
-            "HM_PG_SOURCE_SHA256": "a" * 64,
-            "HM_PG_ALLOWED_DATABASE": "REPLACE_BEFORE_REMOTE_USE",
-            "HM_PG_ALLOWED_ROLE": "REPLACE_BEFORE_REMOTE_USE",
-            "HM_PG_ALLOWED_IPV4_CIDR": "127.0.0.1/32",
-            "HM_PG_ALLOWED_IPV6_CIDR": "::1/128",
-            "HM_PG_TLS_HOSTNAME": "REPLACE_BEFORE_TLS_USE",
-            "PGPORT": "55432",
-            "HM_MARKER": marker.as_posix(),
+            "base-dir": base.as_posix() + "/",
+            "port": "55432",
+            "listen-address": "127.0.0.1",
+            "release": "16",
+            "version": "16.14",
+            "source-sha256": "a" * 64,
+            "allowed-database": "REPLACE_BEFORE_REMOTE_USE",
+            "allowed-role": "REPLACE_BEFORE_REMOTE_USE",
+            "allowed-ipv4-cidr": "127.0.0.1/32",
+            "allowed-ipv6-cidr": "::1/128",
+            "tls-hostname": "REPLACE_BEFORE_TLS_USE",
         }
-        for script_name, variable in cases:
+        for script_name, setting in cases:
+            for filename, value in defaults.items():
+                (settings / filename).write_text(value, encoding="utf-8")
+            (settings / setting).write_text(hostile, encoding="utf-8")
             environment = os.environ.copy()
-            environment.update(defaults)
-            environment[variable] = hostile
+            environment["HM_MARKER"] = marker.as_posix()
             result = subprocess.run(
                 [bash, "-c", scripts[script_name]],
+                cwd=instance,
                 env=environment,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -143,17 +151,20 @@ def validate_adversarial_inputs(bash: str, scripts: dict[str, str]) -> None:
                 check=False,
             )
             if result.returncode == 0:
-                raise AssertionError(f"hostile {variable} unexpectedly succeeded")
+                raise AssertionError(f"hostile {setting} unexpectedly succeeded")
             if marker.exists():
-                raise AssertionError(f"shell injection executed through {variable}")
+                raise AssertionError(f"shell injection executed through {setting}")
 
+        for filename, value in defaults.items():
+            (settings / filename).write_text(value, encoding="utf-8")
         (base / "tls" / "server.crt").write_text("not a certificate\n", encoding="utf-8")
         (base / "tls" / "server.key").write_text("not a private key\n", encoding="utf-8")
+        (settings / "tls-hostname").write_text(hostile, encoding="utf-8")
         environment = os.environ.copy()
-        environment.update(defaults)
-        environment["HM_PG_TLS_HOSTNAME"] = hostile
+        environment["HM_MARKER"] = marker.as_posix()
         result = subprocess.run(
             [bash, "-c", scripts["start.sh"]],
+            cwd=instance,
             env=environment,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -162,9 +173,9 @@ def validate_adversarial_inputs(bash: str, scripts: dict[str, str]) -> None:
             check=False,
         )
         if result.returncode == 0:
-            raise AssertionError("hostile HM_PG_TLS_HOSTNAME unexpectedly succeeded")
+            raise AssertionError("hostile tls-hostname unexpectedly succeeded")
         if marker.exists():
-            raise AssertionError("shell injection executed through HM_PG_TLS_HOSTNAME")
+            raise AssertionError("shell injection executed through tls-hostname")
 
 
 def main() -> int:
